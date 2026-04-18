@@ -11,6 +11,8 @@ const {
   updateTokenPosition, removePlayer,
   selectedTokenId, toggleTokenSelection, selectToken,
   nextStep, prevStep,
+  getControl, resetControl,
+  getHandlePoints, setHandlePoint,
 } = usePlay()
 
 function onKeydown(e: KeyboardEvent) {
@@ -38,7 +40,7 @@ const arrows = computed(() => {
   if (i <= 0) return []
   const prev = steps[i - 1]
   const cur = steps[i]
-  const out: { id: string; points: number[]; kind: string }[] = []
+  const out: { id: string; points: number[]; kind: string; bezier: boolean }[] = []
   for (const t of TOKENS) {
     const a = prev[t.id]
     const b = cur[t.id]
@@ -46,10 +48,49 @@ const arrows = computed(() => {
     const dx = b.x - a.x
     const dy = b.y - a.y
     if (dx * dx + dy * dy < 25) continue
-    out.push({ id: t.id, points: [a.x, a.y, b.x, b.y], kind: t.kind })
+    const c = getControl(i, t.id)
+    if (c) {
+      out.push({
+        id: t.id,
+        points: [a.x, a.y, c[0].x, c[0].y, c[1].x, c[1].y, b.x, b.y],
+        kind: t.kind,
+        bezier: true,
+      })
+    } else {
+      out.push({ id: t.id, points: [a.x, a.y, b.x, b.y], kind: t.kind, bezier: false })
+    }
   }
   return out
 })
+
+const trajectoryHandles = computed(() => {
+  if (isTweening.value || isPlaying.value) return []
+  const i = currentIndex.value
+  if (i <= 0) return []
+  const prev = steps[i - 1]
+  const cur = steps[i]
+  const out: { id: string; which: 0 | 1; x: number; y: number }[] = []
+  for (const t of TOKENS) {
+    const a = prev[t.id]
+    const b = cur[t.id]
+    if (!a || !b) continue
+    const dx = b.x - a.x, dy = b.y - a.y
+    if (dx * dx + dy * dy < 25) continue
+    const h = getHandlePoints(i, t.id)
+    if (!h) continue
+    out.push({ id: t.id, which: 0, x: h[0].x, y: h[0].y })
+    out.push({ id: t.id, which: 1, x: h[1].x, y: h[1].y })
+  }
+  return out
+})
+
+function onHandleDragMove(id: string, which: 0 | 1, e: any) {
+  setHandlePoint(currentIndex.value, id, which, e.target.x(), e.target.y())
+}
+
+function onHandleDblClick(id: string) {
+  resetControl(currentIndex.value, id)
+}
 
 function arrowColor(kind: string) {
   if (kind === 'ball') return 'rgba(255, 107, 44, 0.75)'
@@ -128,6 +169,7 @@ const defenderCount = computed(() => TOKENS.filter(t => t.kind === 'defender').l
             <Court />
             <v-arrow v-for="a in arrows" :key="a.id" :config="{
               points: a.points,
+              bezier: a.bezier,
               stroke: arrowColor(a.kind),
               fill: arrowColor(a.kind),
               strokeWidth: 2,
@@ -145,6 +187,22 @@ const defenderCount = computed(() => TOKENS.filter(t => t.kind === 'defender').l
               @dragend="onTokenDragEnd"
               @remove="onTokenRemove"
               @select="onTokenSelect"
+            />
+            <!-- Trajectory grips sit on the curve at t=1/3 and t=2/3 -->
+            <v-circle v-for="h in trajectoryHandles" :key="'h-' + h.id + h.which" :config="{
+              x: h.x,
+              y: h.y,
+              radius: 7,
+              fill: '#0e0d0a',
+              stroke: '#f3ead6',
+              strokeWidth: 1.5,
+              draggable: true,
+            }"
+              @dragmove="(e: any) => onHandleDragMove(h.id, h.which, e)"
+              @dblclick="() => onHandleDblClick(h.id)"
+              @dbltap="() => onHandleDblClick(h.id)"
+              @mouseenter="(e: any) => { const s = e?.target?.getStage?.(); if (s) s.container().style.cursor = 'grab' }"
+              @mouseleave="(e: any) => { const s = e?.target?.getStage?.(); if (s) s.container().style.cursor = 'default' }"
             />
           </v-layer>
         </v-stage>

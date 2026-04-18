@@ -12,6 +12,9 @@ export interface Token {
 
 export interface Position { x: number; y: number }
 export type Step = Record<string, Position>
+export type ControlPair = [Position, Position]
+// controls[i][tokenId] shapes the trajectory from step i-1 to step i for that token.
+export type StepControls = Record<string, ControlPair>
 
 // Deeper, more editorial palette. Punches against parchment court.
 const ATTACKER_COLOR = '#a72c29'
@@ -70,7 +73,21 @@ function easeInOut(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
 }
 
+export function defaultControls(a: Position, b: Position): ControlPair {
+  return [
+    { x: a.x + (b.x - a.x) / 3, y: a.y + (b.y - a.y) / 3 },
+    { x: a.x + (2 * (b.x - a.x)) / 3, y: a.y + (2 * (b.y - a.y)) / 3 },
+  ]
+}
+
+function cubic(u: number, p0: number, c1: number, c2: number, p3: number) {
+  const iu = 1 - u
+  return iu * iu * iu * p0 + 3 * iu * iu * u * c1 + 3 * iu * u * u * c2 + u * u * u * p3
+}
+
 const steps = reactive<Step[]>([cloneStep(DEFAULT_FORMATION)])
+// Parallel to steps. controls[0] is unused (no incoming trajectory for frame 0).
+const controls = reactive<StepControls[]>([{}])
 const currentIndex = ref(0)
 const isPlaying = ref(false)
 const isTweening = ref(false)
@@ -131,13 +148,20 @@ function tick(now: number) {
   const elapsed = now - tweenStart
   const t = Math.min(1, elapsed / DURATION)
   const e = easeInOut(t)
+  const ctrls = controls[tweenTargetIndex]
   for (const id in tweenFrom) {
     const node = nodeMap.get(id)
     if (!node) continue
     const from = tweenFrom[id]
     const to = tweenTo[id]
-    node.x(from.x + (to.x - from.x) * e)
-    node.y(from.y + (to.y - from.y) * e)
+    const c = ctrls?.[id]
+    if (c) {
+      node.x(cubic(e, from.x, c[0].x, c[1].x, to.x))
+      node.y(cubic(e, from.y, c[0].y, c[1].y, to.y))
+    } else {
+      node.x(from.x + (to.x - from.x) * e)
+      node.y(from.y + (to.y - from.y) * e)
+    }
   }
   anyLayer()?.batchDraw()
   if (t < 1) {
@@ -240,6 +264,7 @@ function addStep() {
   isPlaying.value = false
   const snap = cloneStep(steps[currentIndex.value])
   steps.splice(currentIndex.value + 1, 0, snap)
+  controls.splice(currentIndex.value + 1, 0, {})
   currentIndex.value += 1
   writeDisplayed(steps[currentIndex.value])
 }
@@ -252,6 +277,7 @@ function deleteStep() {
     return
   }
   steps.splice(currentIndex.value, 1)
+  controls.splice(currentIndex.value, 1)
   if (currentIndex.value >= steps.length) currentIndex.value = steps.length - 1
   writeDisplayed(steps[currentIndex.value])
 }
@@ -271,6 +297,7 @@ function clearAll() {
   TOKENS.splice(0, TOKENS.length, ...defaults)
   const base = cloneStep(DEFAULT_FORMATION)
   steps.splice(0, steps.length, base)
+  controls.splice(0, controls.length, {})
   currentIndex.value = 0
   // Drop stale displayed entries for tokens no longer present.
   for (const id in displayed) {
@@ -312,9 +339,76 @@ function removePlayer(id: string) {
   if (idx === -1) return
   TOKENS.splice(idx, 1)
   for (const step of steps) delete step[id]
+  for (const c of controls) delete c[id]
   delete displayed[id]
   registerNode(id, null)
   if (selectedTokenId.value === id) selectedTokenId.value = null
+}
+
+function getControl(stepIndex: number, id: string): ControlPair | null {
+  if (stepIndex <= 0 || stepIndex >= steps.length) return null
+  const a = steps[stepIndex - 1][id]
+  const b = steps[stepIndex][id]
+  if (!a || !b) return null
+  return controls[stepIndex]?.[id] ?? defaultControls(a, b)
+}
+
+function setControl(stepIndex: number, id: string, which: 0 | 1, x: number, y: number) {
+  if (stepIndex <= 0 || stepIndex >= steps.length) return
+  const a = steps[stepIndex - 1][id]
+  const b = steps[stepIndex][id]
+  if (!a || !b) return
+  if (!controls[stepIndex]) controls[stepIndex] = {}
+  const existing = controls[stepIndex][id] ?? defaultControls(a, b)
+  const pair: ControlPair = [
+    { x: existing[0].x, y: existing[0].y },
+    { x: existing[1].x, y: existing[1].y },
+  ]
+  pair[which] = { x, y }
+  controls[stepIndex][id] = pair
+}
+
+// Returns the on-curve points at t=1/3 and t=2/3 — natural drag handles
+// that sit on the actual trajectory rather than pulling from offset.
+export function getHandlePoints(stepIndex: number, id: string): ControlPair | null {
+  if (stepIndex <= 0 || stepIndex >= steps.length) return null
+  const p0 = steps[stepIndex - 1][id]
+  const p3 = steps[stepIndex][id]
+  if (!p0 || !p3) return null
+  const c = controls[stepIndex]?.[id] ?? defaultControls(p0, p3)
+  const B = (t: number, a: number, b: number, d: number, e: number) => {
+    const u = 1 - t
+    return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * d + t * t * t * e
+  }
+  return [
+    { x: B(1 / 3, p0.x, c[0].x, c[1].x, p3.x), y: B(1 / 3, p0.y, c[0].y, c[1].y, p3.y) },
+    { x: B(2 / 3, p0.x, c[0].x, c[1].x, p3.x), y: B(2 / 3, p0.y, c[0].y, c[1].y, p3.y) },
+  ]
+}
+
+// Drag an on-curve handle to (x,y) and solve for bezier controls so the
+// curve actually passes through that point (other handle stays put).
+function setHandlePoint(stepIndex: number, id: string, which: 0 | 1, x: number, y: number) {
+  if (stepIndex <= 0 || stepIndex >= steps.length) return
+  const p0 = steps[stepIndex - 1][id]
+  const p3 = steps[stepIndex][id]
+  if (!p0 || !p3) return
+  const handles = getHandlePoints(stepIndex, id)
+  if (!handles) return
+  const H1 = which === 0 ? { x, y } : handles[0]
+  const H2 = which === 1 ? { x, y } : handles[1]
+  // Solve B(1/3)=H1, B(2/3)=H2 for C1, C2 with P0, P3 fixed.
+  const c1x = (18 * H1.x - 9 * H2.x - 5 * p0.x + 2 * p3.x) / 6
+  const c1y = (18 * H1.y - 9 * H2.y - 5 * p0.y + 2 * p3.y) / 6
+  const c2x = (-9 * H1.x + 18 * H2.x + 2 * p0.x - 5 * p3.x) / 6
+  const c2y = (-9 * H1.y + 18 * H2.y + 2 * p0.y - 5 * p3.y) / 6
+  if (!controls[stepIndex]) controls[stepIndex] = {}
+  controls[stepIndex][id] = [{ x: c1x, y: c1y }, { x: c2x, y: c2y }]
+}
+
+function resetControl(stepIndex: number, id: string) {
+  if (!controls[stepIndex]) return
+  delete controls[stepIndex][id]
 }
 
 function updateTokenPosition(id: string, x: number, y: number) {
@@ -330,12 +424,14 @@ function updateTokenPosition(id: string, x: number, y: number) {
 
 export function usePlay() {
   return {
-    steps, currentIndex, currentStep, displayed,
+    steps, currentIndex, currentStep, displayed, controls,
     isPlaying, isTweening,
     play, pause, selectStep, nextStep, prevStep,
     addStep, deleteStep, clearAll,
     addPlayer, removePlayer,
     selectedTokenId, selectToken, toggleTokenSelection,
     updateTokenPosition, registerNode,
+    getControl, setControl, resetControl,
+    getHandlePoints, setHandlePoint,
   }
 }

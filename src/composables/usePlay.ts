@@ -102,6 +102,10 @@ function anyLayer(): any | null {
   return null
 }
 
+export function getKonvaStage(): any | null {
+  return anyLayer()?.getStage?.() ?? null
+}
+
 let rafId: number | null = null
 let tweenFrom: Step | null = null
 let tweenTo: Step | null = null

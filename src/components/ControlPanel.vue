@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePlay } from '../composables/usePlay'
+import { useVideoExport } from '../composables/useVideoExport'
 
 const {
   isPlaying, currentIndex, steps,
@@ -7,6 +8,8 @@ const {
   addStep, deleteStep, clearAll,
   addPlayer,
 } = usePlay()
+
+const { isRecording, exportVideo } = useVideoExport()
 
 function handleClear() {
   if (confirm('Clear all steps and reset to the default formation?')) clearAll()
@@ -60,6 +63,20 @@ function handleClear() {
         <button class="btn-tac" @click="deleteStep">Delete</button>
         <button class="btn-tac btn-danger" @click="handleClear">Reset</button>
       </div>
+    </div>
+
+    <div class="border-t border-dashed border-[rgba(246,236,210,0.14)]"></div>
+
+    <!-- Export block -->
+    <div>
+      <div class="u-mono text-[10px] tracking-[0.28em] text-[rgba(246,236,210,0.5)] mb-2">EXPORT</div>
+      <button
+        class="btn-tac btn-primary w-full"
+        :disabled="isRecording || isPlaying || steps.length <= 1"
+        @click="exportVideo()"
+      >
+        {{ isRecording ? 'RECORDING…' : 'EXPORT VIDEO' }}
+      </button>
     </div>
   </div>
 </template>

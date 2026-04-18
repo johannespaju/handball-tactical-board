@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlay, TOKENS } from '../composables/usePlay'
 import Court from './Court.vue'
 import Player from './Player.vue'
@@ -8,8 +8,27 @@ import StepList from './StepList.vue'
 
 const {
   steps, currentIndex, displayed, isTweening, isPlaying,
-  updateTokenPosition,
+  updateTokenPosition, removePlayer,
+  selectedTokenId, toggleTokenSelection, selectToken,
+  nextStep, prevStep,
 } = usePlay()
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  const el = e.target as HTMLElement | null
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+  if (isTweening.value || isPlaying.value) return
+  if (e.key === 'ArrowLeft' && currentIndex.value > 0) {
+    e.preventDefault()
+    prevStep()
+  } else if (e.key === 'ArrowRight' && currentIndex.value < steps.length - 1) {
+    e.preventDefault()
+    nextStep()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 const stageConfig = { width: 900, height: 600 }
 
@@ -42,8 +61,21 @@ function onTokenDragEnd(id: string, x: number, y: number) {
   updateTokenPosition(id, x, y)
 }
 
-const attackerCount = TOKENS.filter(t => t.kind === 'attacker').length
-const defenderCount = TOKENS.filter(t => t.kind === 'defender').length
+function onTokenRemove(id: string) {
+  removePlayer(id)
+}
+
+function onTokenSelect(id: string) {
+  toggleTokenSelection(id)
+}
+
+function onStageClick(e: any) {
+  // Clicked empty area (the stage itself) — deselect.
+  if (e?.target === e?.target?.getStage?.()) selectToken(null)
+}
+
+const attackerCount = computed(() => TOKENS.filter(t => t.kind === 'attacker').length)
+const defenderCount = computed(() => TOKENS.filter(t => t.kind === 'defender').length)
 </script>
 
 <template>
@@ -91,7 +123,7 @@ const defenderCount = TOKENS.filter(t => t.kind === 'defender').length
       <div class="court-frame">
         <span class="corner-tr"></span>
         <span class="corner-bl"></span>
-        <v-stage :config="stageConfig">
+        <v-stage :config="stageConfig" @click="onStageClick" @tap="onStageClick">
           <v-layer :config="{ listening: false }">
             <Court />
             <v-arrow v-for="a in arrows" :key="a.id" :config="{
@@ -109,7 +141,10 @@ const defenderCount = TOKENS.filter(t => t.kind === 'defender').length
               :token="t"
               :position="displayed[t.id]"
               :draggable="!isTweening && !isPlaying"
+              :selected="selectedTokenId === t.id"
               @dragend="onTokenDragEnd"
+              @remove="onTokenRemove"
+              @select="onTokenSelect"
             />
           </v-layer>
         </v-stage>
@@ -165,7 +200,7 @@ const defenderCount = TOKENS.filter(t => t.kind === 'defender').length
         </div>
         <div>
           <div class="text-[rgba(246,236,210,0.4)]">DURATION</div>
-          <div class="text-[var(--cream)] text-xl u-display mt-1">{{ (steps.length - 1) * 0.8 }}S</div>
+          <div class="text-[var(--cream)] text-xl u-display mt-1">{{ (steps.length - 1) * 1.5 }}S</div>
         </div>
         <div>
           <div class="text-[rgba(246,236,210,0.4)]">CURRENT</div>

@@ -5,6 +5,7 @@ const {
   isPlaying, currentIndex, steps,
   play, pause, nextStep, prevStep,
   addStep, deleteStep, clearAll,
+  addPlayer,
 } = usePlay()
 
 function handleClear() {
@@ -18,7 +19,7 @@ function handleClear() {
     <div>
       <div class="u-mono text-[10px] tracking-[0.28em] text-[rgba(246,236,210,0.5)] mb-2">PLAYBACK</div>
       <div class="grid grid-cols-2 gap-2">
-        <button class="btn-tac btn-primary" :disabled="isPlaying || currentIndex >= steps.length - 1" @click="play">
+        <button class="btn-tac btn-primary" :disabled="isPlaying || steps.length <= 1" @click="play">
           <span>▶</span><span>Play</span>
         </button>
         <button class="btn-tac" :disabled="!isPlaying" @click="pause">
@@ -34,13 +35,27 @@ function handleClear() {
     <!-- Divider -->
     <div class="border-t border-dashed border-[rgba(246,236,210,0.14)]"></div>
 
+    <!-- Roster block -->
+    <div>
+      <div class="u-mono text-[10px] tracking-[0.28em] text-[rgba(246,236,210,0.5)] mb-2">ROSTER</div>
+      <div class="grid grid-cols-2 gap-2">
+        <button class="btn-tac" @click="addPlayer('attacker')">+ Attacker</button>
+        <button class="btn-tac" @click="addPlayer('defender')">+ Defender</button>
+      </div>
+      <p class="font-[Newsreader] italic text-[11px] text-[rgba(246,236,210,0.5)] mt-2 leading-snug">
+        Click any player on the court to remove them.
+      </p>
+    </div>
+
+    <div class="border-t border-dashed border-[rgba(246,236,210,0.14)]"></div>
+
     <!-- Recording block -->
     <div>
       <div class="flex items-center justify-between mb-2">
         <div class="u-mono text-[10px] tracking-[0.28em] text-[rgba(246,236,210,0.5)]">FRAME CONTROL</div>
         <div class="u-mono text-[10px] tracking-[0.2em] text-[var(--signal)]">ACTIVE</div>
       </div>
-      <button class="btn-tac btn-primary w-full mb-2" @click="addStep">+ Capture Frame</button>
+      <button class="btn-tac btn-primary w-full mb-2" @click="addStep">+ New frame</button>
       <div class="grid grid-cols-2 gap-2">
         <button class="btn-tac" @click="deleteStep">Delete</button>
         <button class="btn-tac btn-danger" @click="handleClear">Reset</button>

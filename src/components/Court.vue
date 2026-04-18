@@ -1,23 +1,49 @@
 <script setup lang="ts">
-const cx = 450
 const cy = 600
-const r6 = 180
-const r9 = 270
+// Goal posts (inside edges) at x = 405 and x = 495 (goal width 90px = 3m, so 30px = 1m)
+const postL = 405
+const postR = 495
+const r6 = 180 // 6m
+const r9 = 270 // 9m (free-throw, dashed)
 
 const INK = '#2a2012'
 const SEPIA = '#3a2e1e'
 const SEPIA_SOFT = 'rgba(58, 46, 30, 0.6)'
 
-function arcScene(radius: number) {
+// Handball area line: quarter-arc from left post, straight across, quarter-arc from right post.
+function areaLineScene(radius: number) {
   return (ctx: any, shape: any) => {
     ctx.beginPath()
-    ctx.arc(cx, cy, radius, Math.PI, 2 * Math.PI, false)
+    // Left quarter-arc: centered on left post, from 180° (due left of post) sweeping up to 270° (straight above post).
+    ctx.arc(postL, cy, radius, Math.PI, 1.5 * Math.PI, false)
+    // Straight segment across the top (parallel to goal line), from above left post to above right post.
+    ctx.lineTo(postR, cy - radius)
+    // Right quarter-arc: centered on right post, from 270° (straight above) sweeping to 360°/0° (due right of post).
+    ctx.arc(postR, cy, radius, 1.5 * Math.PI, 2 * Math.PI, false)
     ctx.strokeShape(shape)
   }
 }
 
-const arc6 = arcScene(r6)
-const arc9 = arcScene(r9)
+const arc6 = areaLineScene(r6)
+const arc9 = areaLineScene(r9)
+
+// 4m goalkeeper line: short segment parallel to goal line, 4m out, between the goalposts.
+function gkLineScene(ctx: any, shape: any) {
+  const y = cy - 120 // 4m
+  ctx.beginPath()
+  ctx.moveTo(postL + 15, y)
+  ctx.lineTo(postR - 15, y)
+  ctx.strokeShape(shape)
+}
+
+// 7m penalty line: 1m long, centered on goal, 7m out.
+function penaltyLineScene(ctx: any, shape: any) {
+  const y = cy - 210 // 7m
+  ctx.beginPath()
+  ctx.moveTo(450 - 15, y)
+  ctx.lineTo(450 + 15, y)
+  ctx.strokeShape(shape)
+}
 
 // Diagonal hatch pattern for goal net
 function goalNetScene(ctx: any, shape: any) {
@@ -71,6 +97,9 @@ function crosshairScene(ctx: any, shape: any) {
       ],
     }" />
 
+    <!-- Clipped group so court lines can't escape the sidelines -->
+    <v-group :config="{ clip: { x: 150, y: 0, width: 600, height: 600 } }">
+
     <!-- Subtle grid -->
     <v-shape :config="{
       stroke: 'rgba(58, 46, 30, 0.08)',
@@ -103,10 +132,22 @@ function crosshairScene(ctx: any, shape: any) {
       sceneFunc: arc9, listening: false,
     }" />
 
-    <!-- 6m solid arc -->
+    <!-- 6m solid area line -->
     <v-shape :config="{
       stroke: SEPIA, strokeWidth: 2,
       sceneFunc: arc6, listening: false,
+    }" />
+
+    <!-- 4m goalkeeper line -->
+    <v-shape :config="{
+      stroke: SEPIA, strokeWidth: 2,
+      sceneFunc: gkLineScene, listening: false,
+    }" />
+
+    <!-- 7m penalty line -->
+    <v-shape :config="{
+      stroke: SEPIA, strokeWidth: 2.5,
+      sceneFunc: penaltyLineScene, listening: false,
     }" />
 
     <!-- Goal line -->
@@ -147,19 +188,6 @@ function crosshairScene(ctx: any, shape: any) {
     <v-line :config="{ points: [155, 5, 155, 20], stroke: SEPIA, strokeWidth: 2, listening: false }" />
     <v-line :config="{ points: [745, 5, 730, 5], stroke: SEPIA, strokeWidth: 2, listening: false }" />
     <v-line :config="{ points: [745, 5, 745, 20], stroke: SEPIA, strokeWidth: 2, listening: false }" />
-
-    <!-- Heading label inside court -->
-    <v-text :config="{
-      x: 170, y: 14, text: 'HALF-COURT · ATTACK END',
-      fontFamily: 'JetBrains Mono', fontSize: 10,
-      fontStyle: 'bold', fill: 'rgba(58, 46, 30, 0.6)',
-      letterSpacing: 2, listening: false,
-    }" />
-    <v-text :config="{
-      x: 620, y: 14, text: 'SECTOR A-1',
-      fontFamily: 'JetBrains Mono', fontSize: 10,
-      fontStyle: 'bold', fill: 'rgba(58, 46, 30, 0.6)',
-      letterSpacing: 2, listening: false,
-    }" />
+    </v-group>
   </v-group>
 </template>

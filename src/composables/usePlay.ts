@@ -18,43 +18,47 @@ const ATTACKER_COLOR = '#a72c29'
 const DEFENDER_COLOR = '#1d3557'
 const BALL_COLOR = '#ff6b2c'
 
-export const TOKENS: Token[] = [
-  ...Array.from({ length: 7 }, (_, i) => ({
-    id: `a${i + 1}`,
-    kind: 'attacker' as TokenKind,
-    number: i + 1,
-    color: ATTACKER_COLOR,
+function makePlayer(kind: 'attacker' | 'defender', number: number): Token {
+  return {
+    id: `${kind[0]}${number}`,
+    kind,
+    number,
+    color: kind === 'attacker' ? ATTACKER_COLOR : DEFENDER_COLOR,
     radius: 20,
-  })),
-  ...Array.from({ length: 7 }, (_, i) => ({
-    id: `d${i + 1}`,
-    kind: 'defender' as TokenKind,
-    number: i + 1,
-    color: DEFENDER_COLOR,
-    radius: 20,
-  })),
-  { id: 'ball', kind: 'ball', color: BALL_COLOR, radius: 11 },
-]
-
-export const DEFAULT_FORMATION: Step = {
-  a1: { x: 200, y: 540 },
-  a2: { x: 305, y: 315 },
-  a3: { x: 450, y: 285 },
-  a4: { x: 595, y: 315 },
-  a5: { x: 700, y: 540 },
-  a6: { x: 395, y: 440 },
-  a7: { x: 505, y: 440 },
-  d1: { x: 285, y: 530 },
-  d2: { x: 345, y: 450 },
-  d3: { x: 410, y: 420 },
-  d4: { x: 490, y: 420 },
-  d5: { x: 555, y: 450 },
-  d6: { x: 615, y: 530 },
-  d7: { x: 450, y: 585 },
-  ball: { x: 450, y: 285 },
+  }
 }
 
-const DURATION = 800
+export const TOKENS = reactive<Token[]>([
+  ...Array.from({ length: 6 }, (_, i) => makePlayer('attacker', i + 1)),
+  ...Array.from({ length: 6 }, (_, i) => makePlayer('defender', i + 1)),
+  { id: 'ball', kind: 'ball', color: BALL_COLOR, radius: 11 },
+])
+
+// Court geometry: 30px = 1m. Goal line y=600. Posts at x=405 and x=495.
+// 6m line = quarter arcs r=180 from each post joined by straight at y=420.
+// 9m line = same shape at r=270 / straight at y=330.
+export const DEFAULT_FORMATION: Step = {
+  // Attack 3-3: wings, three backs, pivot
+  a1: { x: 210, y: 505 }, // left wing
+  a2: { x: 310, y: 280 }, // left back
+  a3: { x: 450, y: 255 }, // centre back (playmaker)
+  a4: { x: 590, y: 280 }, // right back
+  a5: { x: 690, y: 505 }, // right wing
+  a6: { x: 450, y: 405 }, // pivot, just above 6m straight
+  // Defence 6-0 sitting just outside the 6m line
+  d1: { x: 235, y: 520 },
+  d2: { x: 300, y: 448 },
+  d3: { x: 425, y: 412 },
+  d4: { x: 475, y: 412 },
+  d5: { x: 600, y: 448 },
+  d6: { x: 665, y: 520 },
+  ball: { x: 450, y: 255 },
+}
+
+const ATTACKER_SPAWN: Position = { x: 450, y: 220 }
+const DEFENDER_SPAWN: Position = { x: 450, y: 500 }
+
+const DURATION = 1500
 
 function cloneStep(s: Step): Step {
   const out: Step = {}
@@ -72,6 +76,15 @@ const isPlaying = ref(false)
 const isTweening = ref(false)
 
 const displayed = reactive<Step>(cloneStep(DEFAULT_FORMATION))
+const selectedTokenId = ref<string | null>(null)
+
+function selectToken(id: string | null) {
+  selectedTokenId.value = id
+}
+
+function toggleTokenSelection(id: string) {
+  selectedTokenId.value = selectedTokenId.value === id ? null : id
+}
 const currentStep = computed(() => steps[currentIndex.value])
 
 const nodeMap = new Map<string, any>()
@@ -93,6 +106,7 @@ let rafId: number | null = null
 let tweenFrom: Step | null = null
 let tweenTo: Step | null = null
 let tweenStart = 0
+let tweenTargetIndex = -1
 
 function writeDisplayed(s: Step) {
   for (const id in s) {
@@ -127,22 +141,22 @@ function tick(now: number) {
   } else {
     rafId = null
     isTweening.value = false
-    currentIndex.value = currentIndex.value + 1
+    currentIndex.value = tweenTargetIndex
     writeDisplayed(steps[currentIndex.value])
     if (isPlaying.value && currentIndex.value < steps.length - 1) {
-      startTween()
+      startTween(currentIndex.value + 1)
     } else {
       isPlaying.value = false
     }
   }
 }
 
-function startTween() {
-  if (currentIndex.value >= steps.length - 1) {
+function startTween(targetIndex: number = currentIndex.value + 1) {
+  if (targetIndex < 0 || targetIndex >= steps.length || targetIndex === currentIndex.value) {
     isPlaying.value = false
     return
   }
-  const target = steps[currentIndex.value + 1]
+  const target = steps[targetIndex]
   const src: Step = {}
   for (const id in target) {
     const node = nodeMap.get(id)
@@ -152,6 +166,7 @@ function startTween() {
   }
   tweenFrom = src
   tweenTo = cloneStep(target)
+  tweenTargetIndex = targetIndex
   tweenStart = performance.now()
   isTweening.value = true
   rafId = requestAnimationFrame(tick)
@@ -166,9 +181,21 @@ function cancelTween() {
 }
 
 function play() {
-  if (currentIndex.value >= steps.length - 1) return
+  if (steps.length <= 1) return
+  cancelTween()
+  // Snap instantly to frame 0 (no interpolation) so the play always starts from the opening formation.
+  currentIndex.value = 0
+  writeDisplayed(steps[0])
+  for (const id in steps[0]) {
+    const node = nodeMap.get(id)
+    if (node) {
+      node.x(steps[0][id].x)
+      node.y(steps[0][id].y)
+    }
+  }
+  anyLayer()?.batchDraw()
   isPlaying.value = true
-  if (!isTweening.value) startTween()
+  startTween(1)
 }
 
 function pause() {
@@ -191,8 +218,18 @@ function selectStep(i: number) {
   writeDisplayed(steps[i])
 }
 
-function nextStep() { selectStep(currentIndex.value + 1) }
-function prevStep() { selectStep(currentIndex.value - 1) }
+function nextStep() {
+  if (isTweening.value || isPlaying.value) return
+  const target = currentIndex.value + 1
+  if (target >= steps.length) return
+  startTween(target)
+}
+function prevStep() {
+  if (isTweening.value || isPlaying.value) return
+  const target = currentIndex.value - 1
+  if (target < 0) return
+  startTween(target)
+}
 
 function addStep() {
   cancelTween()
@@ -207,9 +244,7 @@ function deleteStep() {
   cancelTween()
   isPlaying.value = false
   if (steps.length <= 1) {
-    steps.splice(0, steps.length, cloneStep(DEFAULT_FORMATION))
-    currentIndex.value = 0
-    writeDisplayed(steps[0])
+    clearAll()
     return
   }
   steps.splice(currentIndex.value, 1)
@@ -220,9 +255,62 @@ function deleteStep() {
 function clearAll() {
   cancelTween()
   isPlaying.value = false
-  steps.splice(0, steps.length, cloneStep(DEFAULT_FORMATION))
+  // Restore the default roster so any previously-deleted tokens come back.
+  const defaults: Token[] = [
+    ...Array.from({ length: 6 }, (_, i) => makePlayer('attacker', i + 1)),
+    ...Array.from({ length: 6 }, (_, i) => makePlayer('defender', i + 1)),
+    { id: 'ball', kind: 'ball', color: BALL_COLOR, radius: 11 },
+  ]
+  for (const t of TOKENS) {
+    if (!defaults.some(d => d.id === t.id)) registerNode(t.id, null)
+  }
+  TOKENS.splice(0, TOKENS.length, ...defaults)
+  const base = cloneStep(DEFAULT_FORMATION)
+  steps.splice(0, steps.length, base)
   currentIndex.value = 0
+  // Drop stale displayed entries for tokens no longer present.
+  for (const id in displayed) {
+    if (!base[id]) delete displayed[id]
+  }
   writeDisplayed(steps[0])
+  selectedTokenId.value = null
+}
+
+function addPlayer(kind: 'attacker' | 'defender') {
+  cancelTween()
+  isPlaying.value = false
+  const sameKind = TOKENS.filter(t => t.kind === kind)
+  const maxNum = sameKind.reduce((m, t) => Math.max(m, t.number ?? 0), 0)
+  const number = maxNum + 1
+  const token = makePlayer(kind, number)
+  // Avoid id collision if a player with this number previously existed and was replaced.
+  if (TOKENS.some(t => t.id === token.id)) {
+    let n = number
+    while (TOKENS.some(t => t.id === `${kind[0]}${n}`)) n++
+    token.id = `${kind[0]}${n}`
+    token.number = n
+  }
+  const ballIndex = TOKENS.findIndex(t => t.kind === 'ball')
+  const insertAt = ballIndex === -1 ? TOKENS.length : ballIndex
+  TOKENS.splice(insertAt, 0, token)
+  const spawn = kind === 'attacker' ? ATTACKER_SPAWN : DEFENDER_SPAWN
+  for (const step of steps) {
+    step[token.id] = { x: spawn.x, y: spawn.y }
+  }
+  displayed[token.id] = { x: spawn.x, y: spawn.y }
+}
+
+function removePlayer(id: string) {
+  if (id === 'ball') return
+  cancelTween()
+  isPlaying.value = false
+  const idx = TOKENS.findIndex(t => t.id === id)
+  if (idx === -1) return
+  TOKENS.splice(idx, 1)
+  for (const step of steps) delete step[id]
+  delete displayed[id]
+  registerNode(id, null)
+  if (selectedTokenId.value === id) selectedTokenId.value = null
 }
 
 function updateTokenPosition(id: string, x: number, y: number) {
@@ -242,6 +330,8 @@ export function usePlay() {
     isPlaying, isTweening,
     play, pause, selectStep, nextStep, prevStep,
     addStep, deleteStep, clearAll,
+    addPlayer, removePlayer,
+    selectedTokenId, selectToken, toggleTokenSelection,
     updateTokenPosition, registerNode,
   }
 }

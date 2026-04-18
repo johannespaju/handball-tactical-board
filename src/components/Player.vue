@@ -7,10 +7,13 @@ const props = defineProps<{
   token: Token
   position: Position
   draggable: boolean
+  selected: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'dragend', id: string, x: number, y: number): void
+  (e: 'remove', id: string): void
+  (e: 'select', id: string): void
 }>()
 
 const { registerNode } = usePlay()
@@ -30,8 +33,33 @@ watch(groupRef, () => {
   if (n) registerNode(props.token.id, n)
 })
 
+const COURT = { x: 150, y: 0, width: 600, height: 600 }
+
+function clampToCourt(pos: { x: number; y: number }) {
+  const r = props.token.radius
+  return {
+    x: Math.max(COURT.x + r, Math.min(COURT.x + COURT.width - r, pos.x)),
+    y: Math.max(COURT.y + r, Math.min(COURT.y + COURT.height - r, pos.y)),
+  }
+}
+
 function onDragEnd(e: any) {
-  emit('dragend', props.token.id, e.target.x(), e.target.y())
+  const clamped = clampToCourt({ x: e.target.x(), y: e.target.y() })
+  e.target.x(clamped.x)
+  e.target.y(clamped.y)
+  emit('dragend', props.token.id, clamped.x, clamped.y)
+}
+
+function onClick(e: any) {
+  if (props.token.kind === 'ball') return
+  e?.cancelBubble && (e.cancelBubble = true)
+  emit('select', props.token.id)
+}
+
+function onRemoveClick(e: any) {
+  if (e?.evt) e.evt.stopPropagation?.()
+  if (e) e.cancelBubble = true
+  emit('remove', props.token.id)
 }
 </script>
 
@@ -42,8 +70,11 @@ function onDragEnd(e: any) {
       x: position.x,
       y: position.y,
       draggable,
+      dragBoundFunc: clampToCourt,
     }"
     @dragend="onDragEnd"
+    @click="onClick"
+    @tap="onClick"
   >
     <!-- Soft base shadow (hard edge, no blur = cheap) -->
     <v-circle :config="{
@@ -103,5 +134,45 @@ function onDragEnd(e: any) {
       offsetY: token.radius,
       listening: false,
     }" />
+
+    <!-- Selection ring -->
+    <v-circle v-if="selected && token.kind !== 'ball'" :config="{
+      radius: token.radius + 5,
+      stroke: '#f3ead6',
+      strokeWidth: 1.5,
+      dash: [3, 3],
+      listening: false,
+    }" />
+
+    <!-- Remove badge (X) on top-right -->
+    <v-group
+      v-if="selected && token.kind !== 'ball'"
+      :config="{ x: token.radius * 0.78, y: -token.radius * 0.78 }"
+      @click="onRemoveClick"
+      @tap="onRemoveClick"
+      @mouseenter="(e: any) => { const s = e?.target?.getStage?.(); if (s) s.container().style.cursor = 'pointer' }"
+      @mouseleave="(e: any) => { const s = e?.target?.getStage?.(); if (s) s.container().style.cursor = 'default' }"
+    >
+      <v-circle :config="{
+        radius: 9,
+        fill: '#0e0d0a',
+        stroke: '#f3ead6',
+        strokeWidth: 1.2,
+      }" />
+      <v-line :config="{
+        points: [-3.5, -3.5, 3.5, 3.5],
+        stroke: '#f3ead6',
+        strokeWidth: 1.6,
+        lineCap: 'round',
+        listening: false,
+      }" />
+      <v-line :config="{
+        points: [-3.5, 3.5, 3.5, -3.5],
+        stroke: '#f3ead6',
+        strokeWidth: 1.6,
+        lineCap: 'round',
+        listening: false,
+      }" />
+    </v-group>
   </v-group>
 </template>

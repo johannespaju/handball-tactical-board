@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.vscode
+*.local
+.claude
+.vscode
+.git
+README.md
+.gitlab-ci.yml
+docker-compose.yml
+.dockerignore
